@@ -84,18 +84,6 @@ instance registerHandlerGet ::
                 handle = handler conn
             respond <<< Matched =<< toResponse route handle 
 
-  -- do 
-    -- case parseCapture (SProxy :: SProxy path) req.rawPathInfo of 
-    --     Left l -> respond $ NotMatched
-    --     Right (p  :: Record prams)  -> do
-    --         let (conn :: Record conn) = (TypeEq.to $ { params: p })
-    --             handle = handler conn
-    --         case reqSpec route rq (RLProxy :: RLProxy specL) of 
-    --             Left l -> respond $ NotMatched
-    --             Right _ -> respond <<< Matched =<< toResponse route handle 
-
-
-
 class HasSpec route (specL :: RL.RowList) (from :: # Type) (to :: # Type) | specL -> from to where 
   runSpec :: Proxy route -> RLProxy specL -> Request -> Either String (Builder { | from } { | to })
 
@@ -110,32 +98,5 @@ instance hasSpecContentType ::
       Just ctt -> runSpec route (RLProxy :: RLProxy rtail) rq
       Nothing  -> Left $ "content-type invalid"
 
--- else instance hasSpecNil :: (RL.RowToList spec RL.Nil) => HasSpec route spec () () where 
+-- else instance hasSpecNil :: HasSpec route RL.Nil () () where 
 --   runSpec route specs rq@(Request req) = pure identity
-
-rowToList :: forall row list. RL.RowToList row list => RProxy row -> RLProxy list 
-rowToList _ = RLProxy
-
--- class HasReqSpec route (spec :: RL.RowList) where 
---     reqSpec :: Proxy route -> Request -> RLProxy spec -> Either String (Proxy route)
-
--- instance hasReqSpecNil :: HasReqSpec route RL.Nil where 
---     reqSpec route _ _ = pure route 
-
--- instance hasReqSpecContent :: 
---     ( HasReqSpec route rtail 
---     , AllMime ctype
---     ) => HasReqSpec route (RL.Cons "content-type" ctype rtail) where 
---     reqSpec route rq@(Request req) _ = do 
---         let lookupHeader = flip Map.lookup $ Map.fromFoldable req.requestHeaders 
---             mCtHeader = lookupHeader $ String.toLower hContentType
---             options = allMime (Proxy :: Proxy ctype)
---         (acceptContent $ mCtHeader >>= Media.matchAccept options) >>= \routeResult -> reqSpec routeResult rq (RLProxy :: RLProxy rtail)
---         where 
---             acceptContent mCtype
---                 | Just ctype <- mCtype = Right route 
---                 | otherwise = Left "content type header not found"
-
-
--- ct_wildcard :: String
--- ct_wildcard = "*" <> "/" <> "*" 
