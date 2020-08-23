@@ -1,14 +1,15 @@
-  
+
 module Swerve.Server.Internal.Path where
 
 import Prim.Symbol as Symbol
 import Prim.TypeError (class Fail, Text)
 import Type.Data.Symbol (SProxy)
 
-foreign import kind Path 
-foreign import data CaptureVar :: Symbol -> Path 
-foreign import data QueryVar :: Symbol -> Path 
+foreign import kind Path
+foreign import data CaptureVar :: Symbol -> Path
+foreign import data QueryVar :: Symbol -> Path
 foreign import data Segment :: Symbol -> Path
+foreign import data Body :: Path -- temp
 
 foreign import kind PList
 foreign import data PNil :: PList
@@ -26,31 +27,31 @@ class ParseImpl (string :: Symbol) (format :: PList) | string -> format
 
 instance aParseImpl :: ParseImpl "" PNil -- Nil
 else instance bParseImpl :: ParseImpl "[" PNil
-else instance cParseImpl :: ParseImpl "/" (PCons (Segment "") PNil) -- Root path 
-else instance dParseImpl :: (Symbol.Cons h t str, ParseSegment h t pl) => ParseImpl str pl -- Start Parsing 
+else instance cParseImpl :: ParseImpl "/" (PCons (Segment "") PNil) -- Root path
+else instance dParseImpl :: (Symbol.Cons h t str, ParseSegment h t pl) => ParseImpl str pl -- Start Parsing
 
 class ParseSegment (head :: Symbol) (tail :: Symbol) (out :: PList) | head tail -> out
 
--- Parse Segment 
--- Call variable matcher when ':' found. 
+-- Parse Segment
+-- Call variable matcher when ':' found.
 -- Throw error message on trailing '/'
 instance aParseSegment :: ParseSegment "" a PNil
-else instance bParseSegment :: ParseSegment a "" (PCons (Segment a) PNil)  
+else instance bParseSegment :: ParseSegment a "" (PCons (Segment a) PNil)
 else instance cParseSegment :: Fail (Text "Invalid path. Remove trailing '/' from your path!") => ParseSegment a "/" o
-else instance dParseSegment :: 
+else instance dParseSegment ::
   ( Symbol.Cons h t str
   , ParseImpl str prest
   ) => ParseSegment "&" str prest
-else instance eParseSegment :: 
+else instance eParseSegment ::
   ( Symbol.Cons h t str
   , ParseQueryVar h t (QueryVar var) rest
   , ParseImpl rest prest
-  ) => ParseSegment "[" str (PCons (QueryVar var) prest)  
-else instance gParseSegment :: 
+  ) => ParseSegment "[" str (PCons (QueryVar var) prest)
+else instance gParseSegment ::
   ( Symbol.Cons h t str
   , ParseCaptureVar h t (CaptureVar var) rest
   , ParseImpl rest prest
-  ) => ParseSegment ":" str (PCons (CaptureVar var) prest)  
+  ) => ParseSegment ":" str (PCons (CaptureVar var) prest)
 else instance hParseSegment :: (ParseImpl str o) => ParseSegment "?" str (PCons (Segment "") o)
 else instance iParseSegment :: (ParseImpl str o) => ParseSegment "/" str (PCons (Segment "") o)
 else instance jParseSegment ::
@@ -60,7 +61,7 @@ else instance jParseSegment ::
 
 class ParseCaptureVar (h :: Symbol) (t :: Symbol) (var :: Path) (rest :: Symbol)| h t -> var rest
 
--- Parse variable 
+-- Parse variable
 -- Stop parsing when "" or "/" found.
 -- Throw error message on trailing '/'
 instance aParseCaptureVar :: ParseCaptureVar "" a (CaptureVar "") ""
@@ -87,4 +88,4 @@ else instance dParseQueryVar ::
   ) => ParseQueryVar h t (QueryVar var') rest
 
 parse :: forall i o. Parse i o => SProxy i ->  PProxy o
-parse _ = PProxy :: _ o  
+parse _ = PProxy :: _ o

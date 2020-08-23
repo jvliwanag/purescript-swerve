@@ -28,15 +28,16 @@ import Record.Builder as Builder
 import Record.Builder as Builder
 import Swerve.API.Verb (GET, Verb)
 import Swerve.Server.Internal.Handler (Handler'(..), Handler)
-import Swerve.Server.Internal.Path (class Parse, CaptureVar, PCons, PNil, PPath(..), PProxy(..), QueryVar, Segment, kind PList, kind Path)
+import Swerve.Server.Internal.Path (class Parse, Body, CaptureVar, PCons, PNil, PPath(..), PProxy(..), QueryVar, Segment, kind PList, kind Path)
 import Type.Data.Row (RProxy(..))
 import Type.Data.RowList (RLProxy(..))
 import Type.Proxy (Proxy(..))
 import URI.Extra.QueryPairs (valueFromString)
 
-type ConnectionRow cap qry
+type ConnectionRow cap qry body
   = ( capture :: Record cap
     , query   :: Record qry
+    , body :: body
     )
 
 class ReadCapture a where
@@ -83,28 +84,31 @@ class ParseRoute (url :: Symbol) (specs :: # Type) where
 
 instance parseRouteImpl ::
   ( Parse url xs
-  , ParsePath xs specs () cap () qry
-  , Subrecord (ConnectionRow cap qry) specs
+  , ParsePath xs specs () cap () qry body
+  , Subrecord (ConnectionRow cap qry body) specs
   ) => ParseRoute url specs where
   parseRoute _ _ url = subrecord <$> conn
     where
       bldrs = parsePath (PProxy :: _ xs) (RProxy :: _ specs) url url
 
-      conn :: Either String {|ConnectionRow cap qry}
+      conn :: Either String {|ConnectionRow cap qry body}
       conn = bldrs <#> \b ->
         { capture: Builder.build b.capture {}
         , query: Builder.build b.query {}
+        , body: b.body
         }
 
-class ParsePath (xs :: PList) (specs :: # Type) (capfrom :: # Type) (capto :: # Type) (queryfrom :: # Type) (queryto :: # Type) | xs -> capfrom capto queryfrom queryto where
+class ParsePath (xs :: PList) (specs :: # Type) (capfrom :: # Type) (capto :: # Type) (queryfrom :: # Type) (queryto :: # Type) body | xs -> capfrom capto queryfrom queryto body where
   parsePath :: PProxy xs -> RProxy specs -> String -> String -> Either String { capture :: Builder { | capfrom } { | capto }
           , query :: Builder {|queryfrom} {|queryto}
+          , body :: body
           }
 
-instance parsePathNil :: ParsePath PNil specs capto capto qryto qryto where
+instance parsePathNil :: ParsePath PNil specs capto capto qryto qryto Unit where
   parsePath _ _ _ _ =
     Right { capture: identity
           , query: identity
+          , body: unit
           }
 
 instance parseCapture ::
@@ -112,11 +116,11 @@ instance parseCapture ::
   , ReadCapture vtype
   , Row.Cons var vtype _foo ctype
   , Row.Cons "capture" { | ctype } _spcs spcs
-  , ParsePath tail spcs capfrom capfrom' qryfrom qryto
+  , ParsePath tail spcs capfrom capfrom' qryfrom qryto body
 
   , Row.Cons var vtype capfrom' capto
   , Row.Lacks var capfrom'
-  ) => ParsePath (PCons (CaptureVar var) tail) spcs capfrom capto qryfrom qryto where
+  ) => ParsePath (PCons (CaptureVar var) tail) spcs capfrom capto qryfrom qryto body where
   parsePath _ specs url url' = case v of
     Just v' ->
       case tl of
@@ -124,6 +128,7 @@ instance parseCapture ::
           let h = Builder.insert (SProxy :: _ var) v' :: Builder {|capfrom'} {|capto}
           in Right $ { capture: h <<< r.capture
                      , query: r.query
+                     , body: r.body
                      }
         Left e ->
           Left $ "tail gave up: " <> e
@@ -137,7 +142,7 @@ instance parseCapture ::
       v :: Maybe vtype
       v = readCapture hUrl -- should really be a segment
 
-      tl :: Either String { capture :: Builder {|capfrom} {|capfrom'}, query :: Builder {|qryfrom} {|qryto} }
+      tl :: Either String { capture :: Builder {|capfrom} {|capfrom'}, query :: Builder {|qryfrom} {|qryto}, body :: body }
       tl = parsePath (PProxy :: _ tail) specs tlUrl url'
 
 instance parseQuery ::
@@ -145,11 +150,11 @@ instance parseQuery ::
   , ReadCapture vtype
   , Row.Cons var vtype _foo qtype
   , Row.Cons "query" { | qtype } _spcs spcs
-  , ParsePath tail spcs capfrom capto qryfrom qryfrom'
+  , ParsePath tail spcs capfrom capto qryfrom qryfrom' body
 
   , Row.Cons var vtype qryfrom' qryto
   , Row.Lacks var qryfrom'
-  ) => ParsePath (PCons (QueryVar var) tail) spcs capfrom capto qryfrom qryto where
+  ) => ParsePath (PCons (QueryVar var) tail) spcs capfrom capto qryfrom qryto body where
   parsePath _ specs url url' = case v of
     Just v' ->
       case tl of
@@ -157,6 +162,7 @@ instance parseQuery ::
           let h = Builder.insert (SProxy :: _ var) v' :: Builder {|qryfrom'} {|qryto}
           in Right $ { capture: r.capture
                      , query: h <<< r.query
+                     , body: r.body
                      }
         Left e ->
           Left $ "tail gave up: " <> e
@@ -170,17 +176,39 @@ instance parseQuery ::
       v :: Maybe vtype
       v = readCapture hUrl
 
-      tl :: Either String { capture :: Builder {|capfrom} {|capto}, query :: Builder {|qryfrom} {|qryfrom'} }
+      tl :: Either String { capture :: Builder {|capfrom} {|capto}, query :: Builder {|qryfrom} {|qryfrom'}, body :: body }
+      tl = parsePath (PProxy :: _ tail) specs tlUrl url'
+
+instance parseBody ::
+  ( IsSymbol var
+  , Row.Cons "body" Int _spcs spcs -- temp
+  , ParsePath tail spcs capfrom capto qryfrom qryto body'
+  ) => ParsePath (PCons Body tail) spcs capfrom capto qryfrom qryto Int where -- assume body = int
+  parsePath _ specs url url' =
+    case tl of
+      Right r ->
+        Right { capture: r.capture
+              , query: r.query
+              , body: 100 -- read body here
+              }
+      Left e ->
+        Left $ "tail gave up: " <> e
+
+    where
+      hUrl = url -- pretend I'm the url with q param
+      tlUrl = url -- pretend I'm the url having removed q param
+
+      tl :: Either String { capture :: Builder {|capfrom} {|capto}, query :: Builder {|qryfrom} {|qryto}, body :: body' }
       tl = parsePath (PProxy :: _ tail) specs tlUrl url'
 
 
-instance parseSegmentRoot :: ParsePath tail specs capfrom capto qryfrom qryto => ParsePath (PCons (Segment "") tail) specs capfrom capto qryfrom qryto where
+instance parseSegmentRoot :: ParsePath tail specs capfrom capto qryfrom qryto body => ParsePath (PCons (Segment "") tail) specs capfrom capto qryfrom qryto body where
   parsePath _ specs url url' = Left "bar"
 
 else instance parseSegment ::
   ( IsSymbol seg
-  , ParsePath tail specs capfrom capto qryfrom qryto
-  ) => ParsePath (PCons (Segment seg) tail) specs capfrom capto qryfrom qryto where
+  , ParsePath tail specs capfrom capto qryfrom qryto body
+  ) => ParsePath (PCons (Segment seg) tail) specs capfrom capto qryfrom qryto body where
   parsePath _ specs url url' = Left "zz"
 
 -- class Router layout handler | layout -> handler where
